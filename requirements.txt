@@ -19,6 +19,15 @@ psutil>=5.9.0
 # Ollama integration
 ollama>=0.1.0
 
+# LlamaIndex for rich content extraction
+llama-index>=0.10.0
+
+# File watching for watch mode
+watchdog>=3.0.0
+
+# Image analysis
+pillow>=10.0.0
+
 # SQLite (included in stdlib, but add wrapper)
 # No external dependency needed
 
