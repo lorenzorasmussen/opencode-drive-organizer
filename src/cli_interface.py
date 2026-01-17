@@ -88,6 +88,15 @@ class CLI:
             action="store_true",
             help="Analyze images with vision model",
         )
+        p.add_argument(
+            "--fast", "-f", action="store_true", help="Use fast tools (fd, ripgrep)"
+        )
+        p.add_argument(
+            "--cloud",
+            "-g",
+            action="store_true",
+            help="Include Google Drive cloud files",
+        )
 
     def _add_organize_command(self, sub):
         p = sub.add_parser("organize", help="Organize files")
@@ -98,16 +107,48 @@ class CLI:
         p.add_argument(
             "--execute", action="store_true", help="Actually execute changes"
         )
+        p.add_argument(
+            "--auto",
+            action="store_true",
+            help="Use confidence thresholds for auto-execution",
+        )
+        p.add_argument(
+            "--agent",
+            "-a",
+            action="store_true",
+            help="Use AI Orchestrator for agent-based decisions",
+        )
+        p.add_argument(
+            "--cloud", "-g", action="store_true", help="Sync with Google Drive cloud"
+        )
 
     def _add_duplicates_command(self, sub):
         p = sub.add_parser("duplicates", help="Find duplicate files")
         p.add_argument("paths", nargs="+", help="Files and/or directories to scan")
         p.add_argument("--min-size", type=int, help="Minimum file size in bytes")
+        p.add_argument(
+            "--fast", "-f", action="store_true", help="Use fast tools (xxhash, rdfind)"
+        )
+        p.add_argument(
+            "--cloud",
+            "-g",
+            action="store_true",
+            help="Check Google Drive cloud for duplicates",
+        )
 
     def _add_analyze_command(self, sub):
         p = sub.add_parser("analyze", help="Analyze file patterns")
         p.add_argument("paths", nargs="+", help="Files and/or directories to analyze")
         p.add_argument("--output", "-o", help="Output file path")
+        p.add_argument(
+            "--agent",
+            "-a",
+            action="store_true",
+            help="Use AI Orchestrator for deep analysis",
+        )
+        p.add_argument(
+            "--fast", "-f", action="store_true", help="Use fast tools (fd, ripgrep)"
+        )
 
     def _add_status_command(self, sub):
         sub.add_parser("status", help="Show system status")
@@ -191,19 +232,53 @@ class CLI:
     def _handle_scan(self, args) -> Dict:
         from llamaindex_extractor import LlamaIndexExtractor
         from vision_extractor import VisionExtractor
+        from tool_integration import ToolIntegration
+        from ollama_integration import OllamaIntegration
         from pathlib import Path
 
         rec = getattr(args, "recursive", True)
         use_idx = getattr(args, "llamaindex", False)
         use_vis = getattr(args, "vision", False)
+        use_fast = getattr(args, "fast", False)
+        use_cloud = getattr(args, "cloud", False)
 
-        results = self._expand_paths(args.paths, recursive=rec)
+        results = []
+
+        if use_fast:
+            tools = ToolIntegration()
+            print("  ⚡ Using fast tools (fd, ripgrep)...")
+            for p in args.paths:
+                if os.path.isdir(p):
+                    found = tools.fd_search(p, hidden=rec)
+                    results.extend(
+                        [{"path": f, "name": os.path.basename(f)} for f in found]
+                    )
+                elif os.path.isfile(p):
+                    results.append({"path": p, "name": os.path.basename(p)})
+        else:
+            results = self._expand_paths(args.paths, recursive=rec)
+
+        if use_cloud:
+            from google_drive_api import GoogleDriveAPI
+
+            print("  ☁️  Fetching Google Drive files...")
+            gd_api = GoogleDriveAPI()
+            gd_files = gd_api.list_files() or []
+            for f in gd_files:
+                results.append(
+                    {
+                        "path": f"gdrive:{f.get('id')}",
+                        "name": f.get("name"),
+                        "cloud": True,
+                    }
+                )
+            print(f"  ✓ Found {len(gd_files)} cloud files")
 
         extracted, analyzed = [], []
 
         if use_idx:
             print("  📚 Extracting content...")
-            ext = LlamaIndexExtractor(use_llamaindex=True)
+            ext = LlamaIndexExtractor()
             for p in args.paths:
                 if os.path.isfile(p):
                     doc = ext._read_text_file(Path(os.path.abspath(p)))
@@ -264,14 +339,45 @@ class CLI:
     def _handle_organize(self, args) -> Dict:
         from semantic_analyzer import SemanticAnalyzer
         from watch_daemon import FileOperationLearner
+        from confidence_executor import ConfidenceExecutor
+        from ai_orchestrator import AIOrchestrator
 
         dry = getattr(args, "dry_run", False) or not getattr(args, "execute", False)
+        use_auto = getattr(args, "auto", False)
+        use_agent = getattr(args, "agent", False)
+        use_cloud = getattr(args, "cloud", False)
+
+        mode_parts = ["DRY RUN" if dry else "LIVE"]
+        if use_auto:
+            mode_parts.append("AUTO")
+        if use_agent:
+            mode_parts.append("AGENT")
+        if use_cloud:
+            mode_parts.append("CLOUD")
 
         print(
-            f"📁 Organizing: {', '.join(args.paths[:3])}{'...' if len(args.paths) > 3 else ''} | Mode: {'DRY RUN' if dry else 'LIVE'}"
+            f"📁 Organizing: {', '.join(args.paths[:3])}{'...' if len(args.paths) > 3 else ''} | {' / '.join(mode_parts)}"
         )
 
         files = self._expand_paths(args.paths, recursive=True)
+
+        # Include Google Drive cloud files if requested
+        if use_cloud:
+            from google_drive_api import GoogleDriveAPI
+
+            print("  ☁️  Fetching Google Drive files...")
+            gd_api = GoogleDriveAPI()
+            gd_files = gd_api.list_files() or []
+            for f in gd_files:
+                files.append(
+                    {
+                        "path": f"gdrive:{f.get('id')}",
+                        "name": f.get("name"),
+                        "cloud": True,
+                    }
+                )
+            print(f"  ✓ Found {len(gd_files)} cloud files")
+
         if not files:
             return {
                 "status": "success",
@@ -282,8 +388,24 @@ class CLI:
 
         print(f"  ✓ Found {len(files)} files")
 
-        analyzer = SemanticAnalyzer()
-        analyses = analyzer.batch_analyze_files([f["path"] for f in files])
+        # Use AI Orchestrator if requested
+        if use_agent:
+            print("  🤖 Using AI Orchestrator for decisions...")
+            orchestrator = AIOrchestrator()
+            analyses = []
+            for f in files:
+                result = orchestrator.execute_agent("analyze", file_path=f["path"])
+                analyses.append(
+                    {
+                        "file_path": f["path"],
+                        "confidence": result.get("confidence", 0.5),
+                        "action": result.get("suggestion", "skip"),
+                        "risk": result.get("risk", "low"),
+                    }
+                )
+        else:
+            analyzer = SemanticAnalyzer()
+            analyses = analyzer.batch_analyze_files([f["path"] for f in files])
 
         learner = FileOperationLearner()
         learned = {
@@ -294,23 +416,30 @@ class CLI:
 
         actions = {"auto": [], "review": [], "skip": []}
         for a in analyses:
-            conf = a["confidence"]
-            action = a["action"]
-            if learned.get(a["file_path"]):
+            conf = a.get("confidence", 0.5)
+            action = a.get("action", "skip")
+            if learned.get(a.get("file_path")):
                 action = learned[a["file_path"]]
                 conf = max(conf, 0.95)
             item = {
-                "path": a["file_path"],
+                "path": a.get("file_path"),
                 "confidence": conf,
                 "action": action,
-                "risk": a["risk"],
+                "risk": a.get("risk", "low"),
             }
-            if conf >= 0.9:
+            if use_auto and conf >= 0.9:
                 actions["auto"].append(item)
             elif conf >= 0.5:
                 actions["review"].append(item)
             else:
                 actions["skip"].append(item)
+
+        # Auto-execute if requested
+        if use_auto and not dry:
+            executor = ConfidenceExecutor()
+            for item in actions["auto"]:
+                result = executor.execute_action(item)
+                print(f"  ✓ Executed: {item['path']} -> {item['action']}")
 
         print(
             f"  📊 Auto: {len(actions['auto'])} | Review: {len(actions['review'])} | Skip: {len(actions['skip'])}"
@@ -321,6 +450,9 @@ class CLI:
             "command": "organize",
             "paths": args.paths,
             "dry_run": dry,
+            "auto_mode": use_auto,
+            "agent_mode": use_agent,
+            "cloud_mode": use_cloud,
             "summary": {
                 "total": len(files),
                 "auto": len(actions["auto"]),
