@@ -309,7 +309,7 @@ class CLI:
                 "duplicates - Find duplicate files",
                 "analyze - Analyze file patterns",
                 "status - Show system status",
-                "clean - Clean temporary files",
+                "clean - Clean temporary files (--execute to actually delete)",
             ],
         }
 
