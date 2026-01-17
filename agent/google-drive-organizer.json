@@ -1,0 +1,50 @@
+{
+  "description": "Google Drive Organizer Agent",
+  "mode": "subagent",
+  "model": "opencode/glm-4.7-free (coding plan)",
+  "temperature": 0.3,
+  "tools": {
+    "read": true,
+    "write": true,
+    "bash": true,
+    "webfetch": true,
+    "task": true,
+    "todowrite": true,
+    "todoread": true
+    "edit": true
+    "bash": true
+    "webfetch": true
+  },
+  "permissions": {
+    "edit": "allow",
+    "bash": "allow",
+    "webfetch": "allow",
+    "task": "allow"
+  },
+  "agent_calls": [
+    "semantic_analyzer",
+    "duplicate_detector",
+    "config_manager",
+    "file_scanner",
+    "pattern_discovery"
+  ],
+  "capabilities": [
+    "scan_files",
+    "analyze_patterns",
+    "find_duplicates",
+    "organize_files",
+    "generate_reports"
+  ],
+  "confidence_thresholds": {
+    "auto_execute": 0.9,
+    "execute_with_log": 0.7,
+    "require_review": 0.5,
+    "skip": 0.0
+  },
+  "automation_schedule": {
+    "scan": "daily",
+    "analysis": "weekly",
+    "full_organization": "weekly",
+    "archiving": "monthly"
+  }
+}
