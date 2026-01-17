@@ -123,11 +123,18 @@ bash tests/integration_test.sh
 | `scan <paths...>` | Scan files/directories |
 | `scan <paths...> --llamaindex` | Extract content from documents |
 | `scan <paths...> --vision` | Analyze images with vision model |
-| `scan <paths...> --llamaindex --vision` | Full content + image analysis |
+| `scan <paths...> --fast` | Use fast tools (fd, ripgrep) |
+| `scan <paths...> --cloud` | Include Google Drive cloud files |
 | `organize <paths...>` | Organize files with AI + learning |
-| `organize <paths...> --execute` | Actually move files (default: dry-run) |
+| `organize <paths...> --auto` | Auto-execute high-confidence moves |
+| `organize <paths...> --agent` | Use AI Orchestrator for decisions |
+| `organize <paths...> --cloud` | Sync with Google Drive cloud |
 | `duplicates <paths...>` | Find duplicate files |
+| `duplicates <paths...> --fast` | Use xxhash/rdfind for speed |
+| `duplicates <paths...> --cloud` | Check GDrive cloud for duplicates |
 | `analyze <paths...>` | Analyze file patterns |
+| `analyze <paths...> --agent` | Use AI Orchestrator for deep analysis |
+| `analyze <paths...> --fast` | Use fast tools (fd, ripgrep) |
 | `status` | Show system status |
 | `clean <paths...>` | Clean temporary files |
 | `clean <paths...> --execute` | Actually delete files |
