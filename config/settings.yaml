@@ -1,0 +1,29 @@
+confidence_thresholds:
+  auto_execute: 0.9
+  review: 0.5
+  skip: 0.5
+performance:
+  enable_xxhash: true
+  disk_monitor_enable: true
+  disk_threshold_percent: 90
+tools:
+  fd_enabled: true
+  fzf_enabled: true
+  ripgrep_enabled: true
+  nnn_enabled: true
+ollama:
+  enabled: true
+  model: llama2
+  temperature: 0.3
+  api_url: http://localhost:11434
+learning:
+  enabled: true
+  learning_file_path: data/learning-data.json
+google_drive:
+  credentials_path: config/credentials.json
+  batch_size: 100
+automation:
+  schedule_scan: weekly
+  schedule_organization: weekly
+  schedule_archiving: monthly
+  auto_cleanup_days: 7
