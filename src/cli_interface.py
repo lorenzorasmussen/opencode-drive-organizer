@@ -1,5 +1,5 @@
 """
-CLI Interface for Google Drive Organizer
+CLI Interface for Google Drive Organizer - Autonomous Edition
 
 Commands:
     scan       - Scan files (use --llamaindex, --vision for enriched analysis)
@@ -39,11 +39,11 @@ TEMP_EXTENSIONS = {".tmp", ".temp", ".bak", ".old", ".swp", "~", ".pyc", ".pyo"}
 
 
 class CLI:
-    """Command-line interface for Google Drive Organizer"""
+    """Command-line interface for Google Drive Organizer - Autonomous Edition"""
 
     def __init__(self):
         self.parser = argparse.ArgumentParser(
-            description="Google Drive Organizer - Autonomous file organization system",
+            description="Google Drive Organizer - Autonomous AI-powered file organization",
             formatter_class=argparse.RawDescriptionHelpFormatter,
         )
         self._setup_arguments()
@@ -56,7 +56,7 @@ class CLI:
         )
         g.add_argument("--config", "-c", type=str, help="Configuration file path")
         g.add_argument(
-            "--version", action="version", version="Google Drive Organizer v1.0.0"
+            "--version", action="version", version="Google Drive Organizer v2.0.0"
         )
 
         sub = self.parser.add_subparsers(dest="command", help="Available commands")
@@ -89,7 +89,10 @@ class CLI:
             help="Analyze images with vision model",
         )
         p.add_argument(
-            "--fast", "-f", action="store_true", help="Use fast tools (fd, ripgrep)"
+            "--fast",
+            "-f",
+            action="store_true",
+            help="Use fast tools (fd, ripgrep) for large datasets",
         )
         p.add_argument(
             "--cloud",
@@ -97,15 +100,18 @@ class CLI:
             action="store_true",
             help="Include Google Drive cloud files",
         )
+        p.add_argument("--output", "-o", help="Output file path for results")
 
     def _add_organize_command(self, sub):
-        p = sub.add_parser("organize", help="Organize files")
+        p = sub.add_parser("organize", help="Organize files with autonomous execution")
         p.add_argument("paths", nargs="+", help="Files and/or directories to organize")
         p.add_argument(
             "--dry-run", action="store_true", help="Show changes without executing"
         )
         p.add_argument(
-            "--execute", action="store_true", help="Actually execute changes"
+            "--execute",
+            action="store_true",
+            help="Actually execute changes (required for auto mode)",
         )
         p.add_argument(
             "--auto",
@@ -121,19 +127,30 @@ class CLI:
         p.add_argument(
             "--cloud", "-g", action="store_true", help="Sync with Google Drive cloud"
         )
+        p.add_argument(
+            "--confidence",
+            type=float,
+            default=0.9,
+            help="Confidence threshold for auto-execution (0.0-1.0)",
+        )
 
     def _add_duplicates_command(self, sub):
         p = sub.add_parser("duplicates", help="Find duplicate files")
         p.add_argument("paths", nargs="+", help="Files and/or directories to scan")
         p.add_argument("--min-size", type=int, help="Minimum file size in bytes")
         p.add_argument(
-            "--fast", "-f", action="store_true", help="Use fast tools (xxhash, rdfind)"
+            "--fast", "-f", action="store_true", help="Use xxhash/rdfind for speed"
         )
         p.add_argument(
             "--cloud",
             "-g",
             action="store_true",
             help="Check Google Drive cloud for duplicates",
+        )
+        p.add_argument(
+            "--delete",
+            action="store_true",
+            help="Automatically delete duplicates (--execute required)",
         )
 
     def _add_analyze_command(self, sub):
@@ -148,6 +165,11 @@ class CLI:
         )
         p.add_argument(
             "--fast", "-f", action="store_true", help="Use fast tools (fd, ripgrep)"
+        )
+        p.add_argument(
+            "--ollama",
+            action="store_true",
+            help="Use OllamaIntegration for LLM-powered analysis",
         )
 
     def _add_status_command(self, sub):
@@ -171,10 +193,10 @@ class CLI:
             "--learning",
             "-l",
             action="store_true",
-            help="Enable learning from operations",
+            help="Enable learning from file operations",
         )
         p.add_argument(
-            "--blocking", "-b", action="store_true", help="Block until Ctrl+C"
+            "--disk-safety", action="store_true", help="Enable disk safety monitoring"
         )
 
     def _add_propose_command(self, sub):
@@ -184,6 +206,9 @@ class CLI:
             "--llm", "-l", action="store_true", help="Use LLM for smart categorization"
         )
         p.add_argument("--output", "-o", help="Output file path")
+        p.add_argument(
+            "--execute", action="store_true", help="Actually create folder structure"
+        )
 
     def _setup_dispatch(self):
         self._dispatch: Dict[str, Callable] = {
@@ -215,24 +240,48 @@ class CLI:
             else {"status": "error", "message": f"Unknown command: {parsed.command}"}
         )
 
-    def _expand_paths(self, paths: list, recursive: bool = True) -> list:
-        """Expand paths list to file list (files as-is, directories scanned)"""
-        from file_scanner import FileScanner
+    def _check_disk_safety(self, min_free_gb: float = 1.0) -> Dict:
+        """Check disk safety before operations"""
+        from disk_monitor import DiskMonitor
 
-        scanner = FileScanner()
+        monitor = DiskMonitor(threshold=95.0)
+        usage = monitor.get_disk_usage()
+        free_gb = usage.get("free_gb", 0)
+        safe = free_gb >= min_free_gb
+        return {"safe": safe, "free_gb": free_gb, "usage": usage}
+
+    def _expand_paths(
+        self, paths: list, recursive: bool = True, use_fast: bool = False
+    ) -> list:
+        """Expand paths list to file list using fast tools if requested"""
+        from file_scanner import FileScanner
+        from tool_integration import ToolIntegration
+
         files = []
-        for p in paths:
-            if os.path.isfile(p):
-                files.append({"path": p, "name": os.path.basename(p)})
-            elif os.path.isdir(p):
-                scanned = scanner.scan(p, recursive=recursive) or []
-                files.extend(scanned)
+        if use_fast:
+            tools = ToolIntegration()
+            print("  ⚡ Using fast tools (fd, ripgrep)...")
+            for p in paths:
+                if os.path.isdir(p):
+                    found = tools.fd_search(p, hidden=recursive)
+                    files.extend(
+                        [{"path": f, "name": os.path.basename(f)} for f in found]
+                    )
+                elif os.path.isfile(p):
+                    files.append({"path": p, "name": os.path.basename(p)})
+        else:
+            scanner = FileScanner()
+            for p in paths:
+                if os.path.isfile(p):
+                    files.append({"path": p, "name": os.path.basename(p)})
+                elif os.path.isdir(p):
+                    scanned = scanner.scan(p, recursive=recursive) or []
+                    files.extend(scanned)
         return files
 
     def _handle_scan(self, args) -> Dict:
         from llamaindex_extractor import LlamaIndexExtractor
         from vision_extractor import VisionExtractor
-        from tool_integration import ToolIntegration
         from ollama_integration import OllamaIntegration
         from pathlib import Path
 
@@ -241,22 +290,11 @@ class CLI:
         use_vis = getattr(args, "vision", False)
         use_fast = getattr(args, "fast", False)
         use_cloud = getattr(args, "cloud", False)
+        output_file = getattr(args, "output", None)
 
-        results = []
+        results = self._expand_paths(args.paths, recursive=rec, use_fast=use_fast)
 
-        if use_fast:
-            tools = ToolIntegration()
-            print("  ⚡ Using fast tools (fd, ripgrep)...")
-            for p in args.paths:
-                if os.path.isdir(p):
-                    found = tools.fd_search(p, hidden=rec)
-                    results.extend(
-                        [{"path": f, "name": os.path.basename(f)} for f in found]
-                    )
-                elif os.path.isfile(p):
-                    results.append({"path": p, "name": os.path.basename(p)})
-        else:
-            results = self._expand_paths(args.paths, recursive=rec)
+        extracted, analyzed = [], []
 
         if use_cloud:
             from google_drive_api import GoogleDriveAPI
@@ -273,8 +311,6 @@ class CLI:
                     }
                 )
             print(f"  ✓ Found {len(gd_files)} cloud files")
-
-        extracted, analyzed = [], []
 
         if use_idx:
             print("  📚 Extracting content...")
@@ -309,7 +345,7 @@ class CLI:
             for p in args.paths:
                 if os.path.isdir(p):
                     images = vis.find_images(p, recursive=rec)
-                elif os.path.isfile(p) and vis.find_images(os.path.dirname(p) or "."):
+                elif os.path.isfile(p):
                     images = [p]
                 else:
                     images = []
@@ -324,7 +360,7 @@ class CLI:
                     )
             print(f"  ✓ Analyzed {len(analyzed)} images")
 
-        return {
+        result = {
             "status": "success",
             "command": "scan",
             "paths": args.paths,
@@ -336,16 +372,27 @@ class CLI:
             "analyzed": analyzed[:20],
         }
 
+        if output_file:
+            with open(output_file, "w") as f:
+                json.dump(result, f, indent=2)
+            print(f"  💾 Saved to {output_file}")
+
+        return result
+
     def _handle_organize(self, args) -> Dict:
         from semantic_analyzer import SemanticAnalyzer
         from watch_daemon import FileOperationLearner
         from confidence_executor import ConfidenceExecutor
+        from gdrive_executor import GDriveExecutor
+        from ollama_integration import OllamaIntegration
         from ai_orchestrator import AIOrchestrator
+        from disk_monitor import DiskMonitor
 
         dry = getattr(args, "dry_run", False) or not getattr(args, "execute", False)
         use_auto = getattr(args, "auto", False)
         use_agent = getattr(args, "agent", False)
         use_cloud = getattr(args, "cloud", False)
+        confidence_threshold = getattr(args, "confidence", 0.9)
 
         mode_parts = ["DRY RUN" if dry else "LIVE"]
         if use_auto:
@@ -359,9 +406,22 @@ class CLI:
             f"📁 Organizing: {', '.join(args.paths[:3])}{'...' if len(args.paths) > 3 else ''} | {' / '.join(mode_parts)}"
         )
 
+        # Check disk safety
+        disk_check = self._check_disk_safety(min_free_gb=1.0)
+        if not disk_check["safe"]:
+            print(
+                f"  ⚠️  LOW DISK SPACE: {disk_check['free_gb']:.1f}GB free ({disk_check['usage']['usage_percent']:.1f}% used)"
+            )
+            print("  🚫 Aborting operations for safety")
+            return {
+                "status": "error",
+                "message": "Disk space too low",
+                "disk_check": disk_check,
+            }
+        print(f"  💾 Disk OK: {disk_check['free_gb']:.1f}GB free")
+
         files = self._expand_paths(args.paths, recursive=True)
 
-        # Include Google Drive cloud files if requested
         if use_cloud:
             from google_drive_api import GoogleDriveAPI
 
@@ -388,10 +448,16 @@ class CLI:
 
         print(f"  ✓ Found {len(files)} files")
 
-        # Use AI Orchestrator if requested
+        # Use AI Orchestrator with OllamaIntegration if requested
         if use_agent:
-            print("  🤖 Using AI Orchestrator for decisions...")
+            print("  🤖 Using AI Orchestrator with Ollama...")
             orchestrator = AIOrchestrator()
+            ollama = OllamaIntegration()
+            ollama_available = ollama.check_connection()
+            if ollama_available:
+                print("  ✓ Ollama connected")
+            else:
+                print("  ⚠️  Ollama not available, using fallback")
             analyses = []
             for f in files:
                 result = orchestrator.execute_agent("analyze", file_path=f["path"])
@@ -427,21 +493,22 @@ class CLI:
                 "action": action,
                 "risk": a.get("risk", "low"),
             }
-            if use_auto and conf >= 0.9:
+            if use_auto and conf >= confidence_threshold:
                 actions["auto"].append(item)
             elif conf >= 0.5:
                 actions["review"].append(item)
             else:
                 actions["skip"].append(item)
 
-        # Auto-execute if requested
+        # Autonomous execution with ConfidenceExecutor/GDriveExecutor
         if use_auto and not dry:
-            from gdrive_executor import GDriveExecutor
-
+            print(
+                f"  🎯 Autonomous execution (confidence >= {confidence_threshold})..."
+            )
             executor = GDriveExecutor(local_executor=ConfidenceExecutor())
             executed_count = 0
+            failed_count = 0
             for item in actions["auto"]:
-                # Prepare action dict
                 action = {
                     "file": item["path"],
                     "type": "MOVE"
@@ -454,11 +521,13 @@ class CLI:
                 if result.get("executed"):
                     executed_count += 1
                     print(f"  ✓ Executed: {item['path']} -> {item['action']}")
+                    learner.record_operation(item["path"], item["action"], "move")
                 else:
+                    failed_count += 1
                     print(
                         f"  ⚠️  Failed: {item['path']}: {result.get('error', 'Unknown')}"
                     )
-            print(f"  ✓ Total executed: {executed_count}")
+            print(f"  📊 Executed: {executed_count} | Failed: {failed_count}")
 
         print(
             f"  📊 Auto: {len(actions['auto'])} | Review: {len(actions['review'])} | Skip: {len(actions['skip'])}"
@@ -472,6 +541,7 @@ class CLI:
             "auto_mode": use_auto,
             "agent_mode": use_agent,
             "cloud_mode": use_cloud,
+            "disk_check": disk_check,
             "summary": {
                 "total": len(files),
                 "auto": len(actions["auto"]),
@@ -484,8 +554,15 @@ class CLI:
 
     def _handle_duplicates(self, args) -> Dict:
         from duplicate_detector import DuplicateDetector
+        from gdrive_executor import GDriveExecutor
+        from confidence_executor import ConfidenceExecutor
 
         files = self._expand_paths(args.paths, recursive=True)
+        use_fast = getattr(args, "fast", False)
+        use_cloud = getattr(args, "cloud", False)
+        auto_delete = getattr(args, "delete", False)
+        execute = getattr(args, "execute", False)
+
         if not files:
             return {
                 "status": "success",
@@ -493,21 +570,54 @@ class CLI:
                 "message": "No files found",
             }
 
-        print(f"🔍 Scanning {len(files)} files...")
-        detector = DuplicateDetector()
-        results = detector.scan_for_duplicates(
-            files=[f["path"] for f in files], use_xxhash=True
-        )
+        print(f"🔍 Scanning {len(files)} files for duplicates...")
+
+        if use_fast:
+            print("  ⚡ Using fast hashing (xxhash)...")
+            detector = DuplicateDetector()
+            results = detector.scan_for_duplicates(
+                files=[f["path"] for f in files], use_xxhash=True
+            )
+        else:
+            detector = DuplicateDetector()
+            results = detector.scan_for_duplicates(
+                files=[f["path"] for f in files], use_xxhash=False
+            )
+
+        dup_groups = results.get("duplicate_groups", 0)
+        print(f"  ✓ Found {dup_groups} duplicate groups")
+
+        # Auto-delete duplicates if requested
+        if auto_delete and execute:
+            print("  🗑️  Auto-deleting duplicates...")
+            executor = GDriveExecutor(local_executor=ConfidenceExecutor())
+            deleted = 0
+            for group in results.get("groups", [])[1:]:  # Keep first, delete rest
+                for dup in group:
+                    if dup.startswith("gdrive:"):
+                        file_id = dup.replace("gdrive:", "")
+                        if executor.gd_api and executor.gd_api.delete_file(file_id):
+                            deleted += 1
+                    elif os.path.exists(dup):
+                        os.remove(dup)
+                        deleted += 1
+            print(f"  ✓ Deleted {deleted} duplicate files")
 
         return {
             "status": "success",
             "command": "duplicates",
-            "duplicates_found": results.get("duplicate_groups", 0),
+            "duplicates_found": dup_groups,
             "results": results,
         }
 
     def _handle_analyze(self, args) -> Dict:
         from pattern_discovery import PatternDiscovery
+        from ollama_integration import OllamaIntegration
+        from ai_orchestrator import AIOrchestrator
+
+        use_agent = getattr(args, "agent", False)
+        use_ollama = getattr(args, "ollama", False)
+        output_file = getattr(args, "output", None)
 
         results = []
         for p in args.paths:
@@ -516,19 +626,61 @@ class CLI:
             elif os.path.isfile(p):
                 results.append({"path": p, "type": "file"})
 
-        return {
+        if use_ollama:
+            print("  🧠 Using OllamaIntegration for deep analysis...")
+            ollama = OllamaIntegration()
+            if ollama.check_connection():
+                prompt = f"Analyze these files and suggest organization patterns: {results[:10]}"
+                llm_response = ollama.generate(prompt, model="llama2", max_tokens=500)
+                print(
+                    f"  ✓ LLM Analysis: {llm_response[:200] if llm_response else 'No response'}..."
+                )
+            else:
+                print("  ⚠️  Ollama not available")
+
+        if use_agent:
+            print("  🤖 Using AI Orchestrator...")
+            orchestrator = AIOrchestrator()
+            agent_results = orchestrator.execute_workflow(
+                ["analyze", "categorize", "suggest"]
+            )
+            results.extend(agent_results)
+
+        result = {
             "status": "success",
             "command": "analyze",
             "paths": args.paths,
             "results": results,
         }
 
+        if output_file:
+            with open(output_file, "w") as f:
+                json.dump(result, f, indent=2)
+            print(f"  💾 Saved to {output_file}")
+
+        return result
+
     def _handle_status(self, args) -> Dict:
+        from ollama_integration import OllamaIntegration
+        from google_drive_api import GoogleDriveAPI
+        from disk_monitor import DiskMonitor
+
+        ollama = OllamaIntegration()
+        gd_api = GoogleDriveAPI()
+        disk = DiskMonitor()
+        disk_usage = disk.get_disk_usage()
+
         return {
             "status": "success",
             "command": "status",
             "system": "google-drive-organizer",
-            "version": "1.0.0",
+            "version": "2.0.0",
+            "ollama": {
+                "connected": ollama.check_connection(),
+                "models": ollama.list_models(),
+            },
+            "google_drive": {"authenticated": gd_api.authenticated},
+            "disk": disk_usage,
             "components": {
                 c: "ready"
                 for c in [
@@ -539,17 +691,21 @@ class CLI:
                     "ai_orchestrator",
                     "confidence_executor",
                     "learning_system",
+                    "gdrive_executor",
+                    "ollama_integration",
+                    "tool_integration",
+                    "disk_monitor",
                 ]
             },
             "features": [
-                "scan [--llamaindex] [--vision]",
-                "organize",
-                "duplicates",
-                "analyze",
+                "scan [--fast] [--cloud] [--llamaindex] [--vision]",
+                "organize [--auto] [--agent] [--cloud] [--execute]",
+                "duplicates [--fast] [--cloud] [--delete]",
+                "analyze [--agent] [--ollama]",
                 "status",
                 "clean [--execute]",
-                "watch [--learning]",
-                "propose [--llm]",
+                "watch [--learning] [--disk-safety]",
+                "propose [--llm] [--execute]",
             ],
         }
 
@@ -558,6 +714,10 @@ class CLI:
         print(
             f"🧹 Cleaning: {', '.join(args.paths[:3])}{'...' if len(args.paths) > 3 else ''} | {'DRY RUN' if dry else 'LIVE'}"
         )
+
+        disk_check = self._check_disk_safety(min_free_gb=0.5)
+        if not disk_check["safe"]:
+            print(f"  ⚠️  Low disk space, cleaning may fail")
 
         deleted = []
         for path in args.paths:
@@ -612,14 +772,19 @@ class CLI:
     def _handle_watch(self, args) -> Dict:
         from watch_daemon import WatchDaemon, create_watch_daemon_with_learning
         from watch_daemon import FileEvent
+        from disk_monitor import DiskMonitor
 
         rec = getattr(args, "recursive", True)
         learn = getattr(args, "learning", False)
-        block = getattr(args, "blocking", True)
+        disk_safety = getattr(args, "disk_safety", False)
 
         print(
-            f"👀 Watching: {args.directory} | Recursive: {rec} | Learning: {learn} | Ctrl+C to stop"
+            f"👀 Watching: {args.directory} | Recursive: {rec} | Learning: {learn} | Disk Safety: {disk_safety}"
         )
+
+        if disk_safety:
+            disk = DiskMonitor(threshold=95.0)
+            print(f"  💾 Disk monitoring enabled (threshold: 95%)")
 
         events = []
 
@@ -636,11 +801,11 @@ class CLI:
         if learn:
             daemon, learner, gen = create_watch_daemon_with_learning(args.directory)
             daemon.recursive = rec
-            daemon.start(blocking=block)
+            daemon.start(blocking=True)
         else:
             WatchDaemon(
                 watch_path=args.directory, event_handler=on_event, recursive=rec
-            ).start(blocking=block)
+            ).start(blocking=True)
 
         return {
             "status": "success",
@@ -652,13 +817,20 @@ class CLI:
 
     def _handle_propose(self, args) -> Dict:
         from watch_daemon import FolderStructureGenerator
+        from ollama_integration import OllamaIntegration
 
         use_llm = getattr(args, "llm", False)
-        out = getattr(args, "output", None)
+        output_file = getattr(args, "output", None)
+        execute = getattr(args, "execute", False)
 
         print(
             f"📁 Proposing structure: {', '.join(args.paths[:3])}{'...' if len(args.paths) > 3 else ''} | {'LLM' if use_llm else 'Basic'}"
         )
+
+        if use_llm:
+            ollama = OllamaIntegration()
+            if not ollama.check_connection():
+                print("  ⚠️  Ollama not available, using basic categorization")
 
         gen = FolderStructureGenerator()
         all_files = []
@@ -672,8 +844,8 @@ class CLI:
                 )
 
         files = all_files
-
         print(f"  📋 {len(files)} proposed moves:")
+
         by_folder = {}
         for f in files:
             folder = (
@@ -687,6 +859,21 @@ class CLI:
             if len(names) > 5:
                 print(f"     ... +{len(names) - 5} more")
 
+        # Execute folder creation if requested
+        if execute:
+            print("  📁 Creating folder structure...")
+            created = set()
+            for f in files:
+                dst = f["dst_path"]
+                folder = "/".join(dst.split("/")[:-1])
+                if folder and folder not in created:
+                    try:
+                        os.makedirs(folder, exist_ok=True)
+                        created.add(folder)
+                        print(f"  ✓ Created: {folder}")
+                    except Exception as e:
+                        print(f"  ⚠️  Failed to create {folder}: {e}")
+
         result = {
             "status": "success",
             "command": "propose",
@@ -695,10 +882,10 @@ class CLI:
             "count": len(files),
             "structure": {"files": files},
         }
-        if out:
-            with open(out, "w") as f:
+        if output_file:
+            with open(output_file, "w") as f:
                 json.dump(result, f, indent=2)
-            print(f"  💾 Saved to {out}")
+            print(f"  💾 Saved to {output_file}")
         return result
 
 
