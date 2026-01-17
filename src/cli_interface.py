@@ -8,6 +8,9 @@ import os
 import sys
 from typing import Dict, Optional
 
+# Add src to path for imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 
 class CLI:
     """
@@ -52,7 +55,10 @@ class CLI:
         scan_parser = subparsers.add_parser("scan", help="Scan files")
         scan_parser.add_argument("directory", help="Directory to scan")
         scan_parser.add_argument(
-            "--recursive", "-r", action="store_true", help="Recursive scan"
+            "--recursive",
+            "-r",
+            action="store_true",
+            help="Recursive scan (default: true)",
         )
 
         # Organize command
@@ -73,6 +79,9 @@ class CLI:
         analyze_parser = subparsers.add_parser("analyze", help="Analyze files")
         analyze_parser.add_argument("directory", help="Directory to analyze")
         analyze_parser.add_argument("--output", "-o", help="Output file path")
+
+        # Status command
+        status_parser = subparsers.add_parser("status", help="Show system status")
 
     def run_command(self, args: Optional[list] = None) -> Dict:
         """
@@ -102,17 +111,18 @@ class CLI:
             return self._handle_duplicates(parsed)
         elif parsed.command == "analyze":
             return self._handle_analyze(parsed)
+        elif parsed.command == "status":
+            return self._handle_status(parsed)
         else:
             return {"status": "error", "message": f"Unknown command: {parsed.command}"}
 
     def _handle_scan(self, args) -> Dict:
         """Handle scan command"""
-        from src.file_scanner import FileScanner
+        from file_scanner import FileScanner
 
         scanner = FileScanner()
-        results = scanner.scan(
-            args.directory, recursive=getattr(args, "recursive", False)
-        )
+        # Always use recursive=True (--recursive flag becomes no-op but kept for backward compat)
+        results = scanner.scan(args.directory, recursive=True)
 
         return {
             "status": "success",
@@ -123,35 +133,161 @@ class CLI:
 
     def _handle_organize(self, args) -> Dict:
         """Handle organize command"""
-        return {
+        from file_scanner import FileScanner
+        from semantic_analyzer import SemanticAnalyzer
+
+        dry_run = getattr(args, "dry_run", False)
+
+        print(f"📁 Organizing: {args.directory}")
+        print(f"   Mode: {'DRY RUN' if dry_run else 'LIVE'}")
+
+        # Step 1: Scan files
+        print("  📄 Scanning files...")
+        scanner = FileScanner()
+        files = scanner.scan(args.directory, recursive=True)
+
+        if not files:
+            return {
+                "status": "success",
+                "command": "organize",
+                "message": "No files found",
+                "actions_taken": 0,
+            }
+
+        print(f"  ✓ Found {len(files)} files")
+
+        # Step 2: Analyze files with semantic analyzer
+        print("  🧠 Analyzing files...")
+        analyzer = SemanticAnalyzer()
+
+        file_paths = [f["path"] for f in files]
+        analyses = analyzer.batch_analyze_files(file_paths)
+
+        # Step 3: Generate actions based on confidence
+        print("  📋 Generating actions...")
+        actions = {
+            "auto_execute": [],  # confidence >= 0.9
+            "review": [],  # confidence 0.5-0.9
+            "skip": [],  # confidence < 0.5
+        }
+
+        for analysis in analyses:
+            file_path = analysis["file_path"]
+            confidence = analysis["confidence"]
+            action = analysis["action"]
+            risk = analysis["risk"]
+
+            action_item = {
+                "path": file_path,
+                "confidence": confidence,
+                "action": action,
+                "risk": risk,
+            }
+
+            if confidence >= 0.9:
+                actions["auto_execute"].append(action_item)
+            elif confidence >= 0.5:
+                actions["review"].append(action_item)
+            else:
+                actions["skip"].append(action_item)
+
+        # Step 4: Report results
+        result = {
             "status": "success",
             "command": "organize",
             "directory": args.directory,
-            "dry_run": getattr(args, "dry_run", False),
+            "dry_run": dry_run,
+            "summary": {
+                "total_files": len(files),
+                "auto_execute_count": len(actions["auto_execute"]),
+                "review_count": len(actions["review"]),
+                "skip_count": len(actions["skip"]),
+            },
+            "actions": {
+                "auto_execute": actions["auto_execute"][:10],  # Limit output
+                "review": actions["review"][:10],
+            },
+            "statistics": analyzer.generate_statistics(),
         }
+
+        if dry_run:
+            print("\n  🏃 DRY RUN - No changes made")
+        else:
+            print("\n  ⚠️  LIVE MODE - Actions would be executed here")
+            print("     (Implementation pending: connect to file mover)")
+
+        # Print summary
+        print(f"\n  📊 Summary:")
+        print(f"     Total files: {len(files)}")
+        print(f"     Auto-execute (≥0.9): {len(actions['auto_execute'])}")
+        print(f"     Review (0.5-0.9): {len(actions['review'])}")
+        print(f"     Skip (<0.5): {len(actions['skip'])}")
+
+        return result
 
     def _handle_duplicates(self, args) -> Dict:
         """Handle duplicates command"""
-        from src.duplicate_detector import DuplicateDetector
+        from file_scanner import FileScanner
+        from duplicate_detector import DuplicateDetector
+
+        # First scan the directory to get file list
+        scanner = FileScanner()
+        files = scanner.scan(args.directory, recursive=True)
+
+        if not files:
+            return {
+                "status": "success",
+                "command": "duplicates",
+                "message": "No files found",
+                "duplicates_found": 0,
+            }
+
+        file_paths = [f["path"] for f in files]
+        print(f"🔍 Scanning {len(file_paths)} files for duplicates...")
 
         detector = DuplicateDetector()
-        results = detector.scan_for_duplicates(files=[args.directory], use_xxhash=True)
+        results = detector.scan_for_duplicates(files=file_paths, use_xxhash=True)
 
         return {
             "status": "success",
             "command": "duplicates",
-            "duplicates_found": results["duplicate_groups"],
+            "duplicates_found": results.get("duplicate_groups", 0),
             "results": results,
         }
 
     def _handle_analyze(self, args) -> Dict:
         """Handle analyze command"""
-        from src.pattern_discovery import PatternDiscovery
+        from pattern_discovery import PatternDiscovery
 
         discovery = PatternDiscovery()
         results = discovery.discover_all(args.directory)
 
         return {"status": "success", "command": "analyze", "results": results}
+
+    def _handle_status(self, args) -> Dict:
+        """Handle status command"""
+        return {
+            "status": "success",
+            "command": "status",
+            "system": "google-drive-organizer",
+            "version": "1.0.0",
+            "components": {
+                "file_scanner": "ready",
+                "semantic_analyzer": "ready",
+                "pattern_discovery": "ready",
+                "duplicate_detector": "ready",
+                "ai_orchestrator": "ready",
+                "confidence_executor": "ready",
+                "learning_system": "ready",
+            },
+            "features": [
+                "scan - Scan directories for files",
+                "organize - Organize files with AI analysis",
+                "duplicates - Find duplicate files",
+                "analyze - Analyze file patterns",
+                "status - Show this status",
+            ],
+        }
 
 
 def main():

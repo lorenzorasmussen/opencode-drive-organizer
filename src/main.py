@@ -8,7 +8,7 @@ import os
 # Add src to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from src.cli_interface import CLI
+from cli_interface import CLI
 
 
 def main():
