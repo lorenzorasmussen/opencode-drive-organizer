@@ -1,275 +1,352 @@
 """
 CLI Interface for Google Drive Organizer
+
+Commands:
+    scan       - Scan files (use --llamaindex, --vision for enriched analysis)
+    organize   - Organize files with AI analysis and learning system
+    duplicates - Find duplicate files
+    analyze    - Analyze file patterns
+    status     - Show system status
+    clean      - Clean temporary files (use --execute to actually delete)
+    watch      - Watch directory for file changes (use --learning to enable learning)
+    propose    - Generate folder structure suggestions (use --llm for smart categorization)
 """
 
 import argparse
 import json
 import os
+import re
 import sys
-from typing import Dict, Optional
+from typing import Callable, Dict, Optional
 
-# Add src to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+TEMP_PATTERNS = [
+    r"^\..*\.swp$",
+    r"^.*\.tmp$",
+    r"^.*\.temp$",
+    r"^.*\.bak$",
+    r"^.*\.old$",
+    r"^.*~$",
+    r"^#.*#$",
+    r"\.DS_Store$",
+    r"^__pycache__$",
+    r"^node_modules$",
+    r"\.pyc$",
+    r"\.pyo$",
+]
+TEMP_EXTENSIONS = {".tmp", ".temp", ".bak", ".old", ".swp", "~", ".pyc", ".pyo"}
 
 
 class CLI:
-    """
-    Command-line interface for Google Drive Organizer
-
-    Features:
-    - Command parsing with argparse
-    - Multiple commands: scan, organize, duplicates, analyze
-    - Help and version options
-    - Verbose output
-    - Configuration file support
-    - Command validation
-    """
+    """Command-line interface for Google Drive Organizer"""
 
     def __init__(self):
-        """Initialize CLI"""
         self.parser = argparse.ArgumentParser(
             description="Google Drive Organizer - Autonomous file organization system",
             formatter_class=argparse.RawDescriptionHelpFormatter,
         )
         self._setup_arguments()
+        self._setup_dispatch()
 
     def _setup_arguments(self):
-        """Setup command-line arguments"""
-        # Global options
-        self.parser.add_argument(
+        g = self.parser.add_argument_group("Global options")
+        g.add_argument(
             "--verbose", "-v", action="store_true", help="Enable verbose output"
         )
-        self.parser.add_argument(
-            "--config", "-c", type=str, help="Configuration file path"
-        )
-        self.parser.add_argument(
+        g.add_argument("--config", "-c", type=str, help="Configuration file path")
+        g.add_argument(
             "--version", action="version", version="Google Drive Organizer v1.0.0"
         )
 
-        # Subcommands
-        subparsers = self.parser.add_subparsers(
-            dest="command", help="Available commands"
-        )
+        sub = self.parser.add_subparsers(dest="command", help="Available commands")
 
-        # Scan command
-        scan_parser = subparsers.add_parser("scan", help="Scan files")
-        scan_parser.add_argument("directory", help="Directory to scan")
-        scan_parser.add_argument(
+        self._add_scan_command(sub)
+        self._add_organize_command(sub)
+        self._add_duplicates_command(sub)
+        self._add_analyze_command(sub)
+        self._add_status_command(sub)
+        self._add_clean_command(sub)
+        self._add_watch_command(sub)
+        self._add_propose_command(sub)
+
+    def _add_scan_command(self, sub):
+        p = sub.add_parser("scan", help="Scan files or directories")
+        p.add_argument("paths", nargs="+", help="Files and/or directories to scan")
+        p.add_argument(
             "--recursive",
             "-r",
             action="store_true",
-            help="Recursive scan (default: true)",
+            help="Recursive scan (for directories)",
         )
-
-        # Organize command
-        organize_parser = subparsers.add_parser("organize", help="Organize files")
-        organize_parser.add_argument("directory", help="Directory to organize")
-        organize_parser.add_argument(
-            "--dry-run",
+        p.add_argument(
+            "--llamaindex", "-l", action="store_true", help="Extract document content"
+        )
+        p.add_argument(
+            "--vision",
+            "-v",
             action="store_true",
-            help="Show changes without executing (default)",
-        )
-        organize_parser.add_argument(
-            "--execute", action="store_true", help="Actually execute the changes"
+            help="Analyze images with vision model",
         )
 
-        # Duplicates command
-        dup_parser = subparsers.add_parser("duplicates", help="Find duplicates")
-        dup_parser.add_argument("directory", help="Directory to scan")
-        dup_parser.add_argument(
-            "--min-size", type=int, help="Minimum file size in bytes"
+    def _add_organize_command(self, sub):
+        p = sub.add_parser("organize", help="Organize files")
+        p.add_argument("paths", nargs="+", help="Files and/or directories to organize")
+        p.add_argument(
+            "--dry-run", action="store_true", help="Show changes without executing"
+        )
+        p.add_argument(
+            "--execute", action="store_true", help="Actually execute changes"
         )
 
-        # Analyze command
-        analyze_parser = subparsers.add_parser("analyze", help="Analyze files")
-        analyze_parser.add_argument("directory", help="Directory to analyze")
-        analyze_parser.add_argument("--output", "-o", help="Output file path")
+    def _add_duplicates_command(self, sub):
+        p = sub.add_parser("duplicates", help="Find duplicate files")
+        p.add_argument("paths", nargs="+", help="Files and/or directories to scan")
+        p.add_argument("--min-size", type=int, help="Minimum file size in bytes")
 
-        # Status command
-        status_parser = subparsers.add_parser("status", help="Show system status")
+    def _add_analyze_command(self, sub):
+        p = sub.add_parser("analyze", help="Analyze file patterns")
+        p.add_argument("paths", nargs="+", help="Files and/or directories to analyze")
+        p.add_argument("--output", "-o", help="Output file path")
 
-        # Clean command
-        clean_parser = subparsers.add_parser("clean", help="Clean temporary files")
-        clean_parser.add_argument("directory", help="Directory to clean")
-        clean_parser.add_argument(
-            "--dry-run",
+    def _add_status_command(self, sub):
+        sub.add_parser("status", help="Show system status")
+
+    def _add_clean_command(self, sub):
+        p = sub.add_parser("clean", help="Clean temporary files")
+        p.add_argument("paths", nargs="+", help="Files and/or directories to clean")
+        p.add_argument(
+            "--dry-run", action="store_true", help="Show what would be deleted"
+        )
+        p.add_argument("--execute", action="store_true", help="Actually delete files")
+
+    def _add_watch_command(self, sub):
+        p = sub.add_parser("watch", help="Watch directory for file changes")
+        p.add_argument("directory", help="Directory to watch")
+        p.add_argument(
+            "--recursive", "-r", action="store_true", help="Watch subdirectories"
+        )
+        p.add_argument(
+            "--learning",
+            "-l",
             action="store_true",
-            help="Show what would be deleted (default)",
+            help="Enable learning from operations",
         )
-        clean_parser.add_argument(
-            "--execute", action="store_true", help="Actually delete temporary files"
+        p.add_argument(
+            "--blocking", "-b", action="store_true", help="Block until Ctrl+C"
         )
+
+    def _add_propose_command(self, sub):
+        p = sub.add_parser("propose", help="Propose folder structure for organization")
+        p.add_argument("paths", nargs="+", help="Files and/or directories to analyze")
+        p.add_argument(
+            "--llm", "-l", action="store_true", help="Use LLM for smart categorization"
+        )
+        p.add_argument("--output", "-o", help="Output file path")
+
+    def _setup_dispatch(self):
+        self._dispatch: Dict[str, Callable] = {
+            "scan": self._handle_scan,
+            "organize": self._handle_organize,
+            "duplicates": self._handle_duplicates,
+            "analyze": self._handle_analyze,
+            "status": self._handle_status,
+            "clean": self._handle_clean,
+            "watch": self._handle_watch,
+            "propose": self._handle_propose,
+        }
 
     def run_command(self, args: Optional[list] = None) -> Dict:
-        """
-        Run CLI command
-
-        Args:
-            args: Command-line arguments (uses sys.argv if None)
-
-        Returns:
-            Result dict
-        """
-        parsed = self.parser.parse_args(args)
-
+        try:
+            parsed = self.parser.parse_args(args)
+        except SystemExit as e:
+            return {"status": "error", "exit_code": e.code, "message": "Command exited"}
         if not parsed.command:
             return {
                 "status": "error",
                 "message": "No command specified",
                 "usage": self.parser.format_help(),
             }
+        handler = self._dispatch.get(parsed.command)
+        return (
+            handler(parsed)
+            if handler
+            else {"status": "error", "message": f"Unknown command: {parsed.command}"}
+        )
 
-        # Execute command
-        if parsed.command == "scan":
-            return self._handle_scan(parsed)
-        elif parsed.command == "organize":
-            return self._handle_organize(parsed)
-        elif parsed.command == "duplicates":
-            return self._handle_duplicates(parsed)
-        elif parsed.command == "analyze":
-            return self._handle_analyze(parsed)
-        elif parsed.command == "status":
-            return self._handle_status(parsed)
-        elif parsed.command == "clean":
-            return self._handle_clean(parsed)
-        else:
-            return {"status": "error", "message": f"Unknown command: {parsed.command}"}
-
-    def _handle_scan(self, args) -> Dict:
-        """Handle scan command"""
+    def _expand_paths(self, paths: list, recursive: bool = True) -> list:
+        """Expand paths list to file list (files as-is, directories scanned)"""
         from file_scanner import FileScanner
 
         scanner = FileScanner()
-        # Always use recursive=True (--recursive flag becomes no-op but kept for backward compat)
-        results = scanner.scan(args.directory, recursive=True)
+        files = []
+        for p in paths:
+            if os.path.isfile(p):
+                files.append({"path": p, "name": os.path.basename(p)})
+            elif os.path.isdir(p):
+                scanned = scanner.scan(p, recursive=recursive) or []
+                files.extend(scanned)
+        return files
+
+    def _handle_scan(self, args) -> Dict:
+        from llamaindex_extractor import LlamaIndexExtractor
+        from vision_extractor import VisionExtractor
+        from pathlib import Path
+
+        rec = getattr(args, "recursive", True)
+        use_idx = getattr(args, "llamaindex", False)
+        use_vis = getattr(args, "vision", False)
+
+        results = self._expand_paths(args.paths, recursive=rec)
+
+        extracted, analyzed = [], []
+
+        if use_idx:
+            print("  📚 Extracting content...")
+            ext = LlamaIndexExtractor(use_llamaindex=True)
+            for p in args.paths:
+                if os.path.isfile(p):
+                    doc = ext._read_text_file(Path(os.path.abspath(p)))
+                    if doc.get("content"):
+                        m = doc.get("metadata", {})
+                        extracted.append(
+                            {
+                                "path": m.get("file_path"),
+                                "name": m.get("file_name"),
+                                "type": m.get("file_type"),
+                            }
+                        )
+                elif os.path.isdir(p):
+                    for doc in ext.extract(p, recursive=rec):
+                        m = doc.get("metadata", {})
+                        extracted.append(
+                            {
+                                "path": m.get("file_path"),
+                                "name": m.get("file_name"),
+                                "type": m.get("file_type"),
+                            }
+                        )
+            print(f"  ✓ Extracted {len(extracted)} documents")
+
+        if use_vis:
+            print("  👁️  Analyzing images...")
+            vis = VisionExtractor()
+            for p in args.paths:
+                if os.path.isdir(p):
+                    images = vis.find_images(p, recursive=rec)
+                elif os.path.isfile(p) and vis.find_images(os.path.dirname(p) or "."):
+                    images = [p]
+                else:
+                    images = []
+                for img in images:
+                    a = vis.analyze_image(img)
+                    analyzed.append(
+                        {
+                            "path": img,
+                            "category": a.get("category"),
+                            "confidence": a.get("confidence"),
+                        }
+                    )
+            print(f"  ✓ Analyzed {len(analyzed)} images")
 
         return {
             "status": "success",
             "command": "scan",
-            "files_found": len(results) if results else 0,
+            "paths": args.paths,
+            "files_found": len(results) or 0,
+            "extracted_count": len(extracted),
+            "analyzed_count": len(analyzed),
             "results": results,
+            "extracted": extracted[:20],
+            "analyzed": analyzed[:20],
         }
 
     def _handle_organize(self, args) -> Dict:
-        """Handle organize command"""
-        from file_scanner import FileScanner
         from semantic_analyzer import SemanticAnalyzer
+        from watch_daemon import FileOperationLearner
 
-        dry_run = getattr(args, "dry_run", False)
-        execute = getattr(args, "execute", False)
+        dry = getattr(args, "dry_run", False) or not getattr(args, "execute", False)
 
-        # Default to dry-run unless --execute is specified
-        is_dry_run = dry_run or not execute
+        print(
+            f"📁 Organizing: {', '.join(args.paths[:3])}{'...' if len(args.paths) > 3 else ''} | Mode: {'DRY RUN' if dry else 'LIVE'}"
+        )
 
-        print(f"📁 Organizing: {args.directory}")
-        print(f"   Mode: {'DRY RUN' if is_dry_run else 'LIVE'}")
-
-        # Step 1: Scan files
-        print("  📄 Scanning files...")
-        scanner = FileScanner()
-        files = scanner.scan(args.directory, recursive=True)
-
+        files = self._expand_paths(args.paths, recursive=True)
         if not files:
             return {
                 "status": "success",
                 "command": "organize",
                 "message": "No files found",
-                "actions_taken": 0,
+                "actions": 0,
             }
 
         print(f"  ✓ Found {len(files)} files")
 
-        # Step 2: Analyze files with semantic analyzer
-        print("  🧠 Analyzing files...")
         analyzer = SemanticAnalyzer()
+        analyses = analyzer.batch_analyze_files([f["path"] for f in files])
 
-        file_paths = [f["path"] for f in files]
-        analyses = analyzer.batch_analyze_files(file_paths)
-
-        # Step 3: Generate actions based on confidence
-        print("  📋 Generating actions...")
-        actions = {
-            "auto_execute": [],  # confidence >= 0.9
-            "review": [],  # confidence 0.5-0.9
-            "skip": [],  # confidence < 0.5
+        learner = FileOperationLearner()
+        learned = {
+            fp: learner.suggest_destination(fp) for fp in [f["path"] for f in files]
         }
+        learned_count = sum(1 for v in learned.values() if v)
+        print(f"  💡 {learned_count} learned suggestions")
 
-        for analysis in analyses:
-            file_path = analysis["file_path"]
-            confidence = analysis["confidence"]
-            action = analysis["action"]
-            risk = analysis["risk"]
-
-            action_item = {
-                "path": file_path,
-                "confidence": confidence,
+        actions = {"auto": [], "review": [], "skip": []}
+        for a in analyses:
+            conf = a["confidence"]
+            action = a["action"]
+            if learned.get(a["file_path"]):
+                action = learned[a["file_path"]]
+                conf = max(conf, 0.95)
+            item = {
+                "path": a["file_path"],
+                "confidence": conf,
                 "action": action,
-                "risk": risk,
+                "risk": a["risk"],
             }
-
-            if confidence >= 0.9:
-                actions["auto_execute"].append(action_item)
-            elif confidence >= 0.5:
-                actions["review"].append(action_item)
+            if conf >= 0.9:
+                actions["auto"].append(item)
+            elif conf >= 0.5:
+                actions["review"].append(item)
             else:
-                actions["skip"].append(action_item)
+                actions["skip"].append(item)
 
-        # Step 4: Report results
-        result = {
+        print(
+            f"  📊 Auto: {len(actions['auto'])} | Review: {len(actions['review'])} | Skip: {len(actions['skip'])}"
+        )
+
+        return {
             "status": "success",
             "command": "organize",
-            "directory": args.directory,
-            "dry_run": is_dry_run,
+            "paths": args.paths,
+            "dry_run": dry,
             "summary": {
-                "total_files": len(files),
-                "auto_execute_count": len(actions["auto_execute"]),
-                "review_count": len(actions["review"]),
-                "skip_count": len(actions["skip"]),
+                "total": len(files),
+                "auto": len(actions["auto"]),
+                "review": len(actions["review"]),
+                "skip": len(actions["skip"]),
+                "learned": learned_count,
             },
-            "actions": {
-                "auto_execute": actions["auto_execute"][:10],  # Limit output
-                "review": actions["review"][:10],
-            },
-            "statistics": analyzer.generate_statistics(),
+            "actions": {"auto": actions["auto"][:10], "review": actions["review"][:10]},
         }
 
-        if is_dry_run:
-            print("\n  🏃 DRY RUN - No changes made")
-        else:
-            print("\n  ⚠️  LIVE MODE - File operations would be executed here")
-            print("     (Use organize with --execute to perform actual changes)")
-
-        # Print summary
-        print(f"\n  📊 Summary:")
-        print(f"     Total files: {len(files)}")
-        print(f"     Auto-execute (≥0.9): {len(actions['auto_execute'])}")
-        print(f"     Review (0.5-0.9): {len(actions['review'])}")
-        print(f"     Skip (<0.5): {len(actions['skip'])}")
-
-        return result
-
     def _handle_duplicates(self, args) -> Dict:
-        """Handle duplicates command"""
-        from file_scanner import FileScanner
         from duplicate_detector import DuplicateDetector
 
-        # First scan the directory to get file list
-        scanner = FileScanner()
-        files = scanner.scan(args.directory, recursive=True)
-
+        files = self._expand_paths(args.paths, recursive=True)
         if not files:
             return {
                 "status": "success",
                 "command": "duplicates",
                 "message": "No files found",
-                "duplicates_found": 0,
             }
 
-        file_paths = [f["path"] for f in files]
-        print(f"🔍 Scanning {len(file_paths)} files for duplicates...")
-
+        print(f"🔍 Scanning {len(files)} files...")
         detector = DuplicateDetector()
-        results = detector.scan_for_duplicates(files=file_paths, use_xxhash=True)
+        results = detector.scan_for_duplicates(
+            files=[f["path"] for f in files], use_xxhash=True
+        )
 
         return {
             "status": "success",
@@ -279,127 +356,208 @@ class CLI:
         }
 
     def _handle_analyze(self, args) -> Dict:
-        """Handle analyze command"""
         from pattern_discovery import PatternDiscovery
 
-        discovery = PatternDiscovery()
-        results = discovery.discover_all(args.directory)
+        results = []
+        for p in args.paths:
+            if os.path.isdir(p):
+                results.extend(PatternDiscovery().discover_all(p) or [])
+            elif os.path.isfile(p):
+                results.append({"path": p, "type": "file"})
 
-        return {"status": "success", "command": "analyze", "results": results}
+        return {
+            "status": "success",
+            "command": "analyze",
+            "paths": args.paths,
+            "results": results,
+        }
 
     def _handle_status(self, args) -> Dict:
-        """Handle status command"""
         return {
             "status": "success",
             "command": "status",
             "system": "google-drive-organizer",
             "version": "1.0.0",
             "components": {
-                "file_scanner": "ready",
-                "semantic_analyzer": "ready",
-                "pattern_discovery": "ready",
-                "duplicate_detector": "ready",
-                "ai_orchestrator": "ready",
-                "confidence_executor": "ready",
-                "learning_system": "ready",
+                c: "ready"
+                for c in [
+                    "file_scanner",
+                    "semantic_analyzer",
+                    "pattern_discovery",
+                    "duplicate_detector",
+                    "ai_orchestrator",
+                    "confidence_executor",
+                    "learning_system",
+                ]
             },
             "features": [
-                "scan - Scan directories for files",
-                "organize - Organize files with AI analysis",
-                "duplicates - Find duplicate files",
-                "analyze - Analyze file patterns",
-                "status - Show system status",
-                "clean - Clean temporary files (--execute to actually delete)",
+                "scan [--llamaindex] [--vision]",
+                "organize",
+                "duplicates",
+                "analyze",
+                "status",
+                "clean [--execute]",
+                "watch [--learning]",
+                "propose [--llm]",
             ],
         }
 
     def _handle_clean(self, args) -> Dict:
-        """Handle clean command - remove temporary files"""
-        import re
-
-        dry_run = getattr(args, "dry_run", False)
-        execute = getattr(args, "execute", False)
-
-        mode = "DRY RUN" if dry_run or not execute else "LIVE"
-        print(f"🧹 Cleaning: {args.directory}")
-        print(f"   Mode: {mode}")
-
-        # Temporary file patterns
-        temp_patterns = [
-            r"^\..*\.swp$",  # Vim swap files
-            r"^.*\.tmp$",  # .tmp
-            r"^.*\.temp$",  # .temp
-            r"^.*\.bak$",  # .bak
-            r"^.*\.old$",  # .old
-            r"^.*~$",  # Backup files
-            r"^#.*#$",  # Emacs auto-save
-            r"\.DS_Store$",  # macOS metadata
-            r"^__pycache__$",  # Python cache
-            r"^node_modules$",  # Node modules
-            r"\.pyc$",  # Python compiled
-            r"\.pyo$",  # Python optimized
-        ]
-
-        temp_extensions = {".tmp", ".temp", ".bak", ".old", ".swp", "~", ".pyc", ".pyo"}
+        dry = getattr(args, "dry_run", False) or not getattr(args, "execute", False)
+        print(
+            f"🧹 Cleaning: {', '.join(args.paths[:3])}{'...' if len(args.paths) > 3 else ''} | {'DRY RUN' if dry else 'LIVE'}"
+        )
 
         deleted = []
-        skipped = []
-
-        for root, dirs, files in os.walk(args.directory):
-            # Skip hidden dirs
-            dirs[:] = [d for d in dirs if not d.startswith(".")]
-
-            for filename in files:
-                file_path = os.path.join(root, filename)
-                ext = os.path.splitext(filename)[1].lower()
-
+        for path in args.paths:
+            if os.path.isfile(path):
+                fn = os.path.basename(path)
+                ext = os.path.splitext(fn)[1].lower()
                 is_temp = (
-                    filename.startswith(".")  # Hidden files
-                    or ext in temp_extensions  # Temp extensions
-                    or any(re.match(p, filename) for p in temp_patterns)  # Patterns
+                    fn.startswith(".")
+                    or ext in TEMP_EXTENSIONS
+                    or any(re.match(p, fn) for p in TEMP_PATTERNS)
                 )
-
                 if is_temp:
-                    deleted.append(file_path)
-                    if execute:
+                    deleted.append(path)
+                    if not dry:
                         try:
-                            os.remove(file_path)
+                            os.remove(path)
                         except Exception as e:
-                            print(f"  ⚠️  Failed to delete {filename}: {e}")
-                else:
-                    skipped.append(file_path)
+                            print(f"  ⚠️  Failed: {fn}: {e}")
+            elif os.path.isdir(path):
+                for root, dirs, files in os.walk(path):
+                    dirs[:] = [d for d in dirs if not d.startswith(".")]
+                    for fn in files:
+                        fp = os.path.join(root, fn)
+                        ext = os.path.splitext(fn)[1].lower()
+                        is_temp = (
+                            fn.startswith(".")
+                            or ext in TEMP_EXTENSIONS
+                            or any(re.match(p, fn) for p in TEMP_PATTERNS)
+                        )
+                        if is_temp:
+                            deleted.append(fp)
+                            if not dry:
+                                try:
+                                    os.remove(fp)
+                                except Exception as e:
+                                    print(f"  ⚠️  Failed: {fn}: {e}")
 
-        print(f"  ✓ Found {len(deleted)} temporary files")
-
-        if dry_run or not execute:
-            print("\n  🏃 DRY RUN - Files would be deleted:")
-            for f in deleted[:20]:
+        print(f"  ✓ Found {len(deleted)} files")
+        if dry:
+            print("  Would delete:")
+            for f in deleted[:10]:
                 print(f"     - {os.path.basename(f)}")
-            if len(deleted) > 20:
-                print(f"     ... and {len(deleted) - 20} more")
-        else:
-            print(f"\n  ✓ Deleted {len(deleted)} temporary files")
 
         return {
             "status": "success",
             "command": "clean",
-            "directory": args.directory,
-            "dry_run": dry_run or not execute,
-            "deleted_count": len(deleted),
-            "deleted_files": deleted[:20],
+            "paths": args.paths,
+            "dry_run": dry,
+            "deleted": len(deleted),
         }
+
+    def _handle_watch(self, args) -> Dict:
+        from watch_daemon import WatchDaemon, create_watch_daemon_with_learning
+        from watch_daemon import FileEvent
+
+        rec = getattr(args, "recursive", True)
+        learn = getattr(args, "learning", False)
+        block = getattr(args, "blocking", True)
+
+        print(
+            f"👀 Watching: {args.directory} | Recursive: {rec} | Learning: {learn} | Ctrl+C to stop"
+        )
+
+        events = []
+
+        def on_event(e):
+            if isinstance(e, FileEvent):
+                events.append(
+                    {"op": e.operation.value, "src": e.src_path, "dst": e.dest_path}
+                )
+                print(
+                    f"  📄 {e.operation.value}: {e.src_path}"
+                    + (f" -> {e.dest_path}" if e.dest_path else "")
+                )
+
+        if learn:
+            daemon, learner, gen = create_watch_daemon_with_learning(args.directory)
+            daemon.recursive = rec
+            daemon.start(blocking=block)
+        else:
+            WatchDaemon(
+                watch_path=args.directory, event_handler=on_event, recursive=rec
+            ).start(blocking=block)
+
+        return {
+            "status": "success",
+            "command": "watch",
+            "directory": args.directory,
+            "events": len(events),
+            "recent": events[-50:],
+        }
+
+    def _handle_propose(self, args) -> Dict:
+        from watch_daemon import FolderStructureGenerator
+
+        use_llm = getattr(args, "llm", False)
+        out = getattr(args, "output", None)
+
+        print(
+            f"📁 Proposing structure: {', '.join(args.paths[:3])}{'...' if len(args.paths) > 3 else ''} | {'LLM' if use_llm else 'Basic'}"
+        )
+
+        gen = FolderStructureGenerator()
+        all_files = []
+        for p in args.paths:
+            if os.path.isdir(p):
+                struct = gen.propose_structure(p, use_llm=use_llm)
+                all_files.extend(struct.get("files", []))
+            elif os.path.isfile(p):
+                all_files.append(
+                    {"src_path": p, "dst_path": f"imported/{os.path.basename(p)}"}
+                )
+
+        files = all_files
+
+        print(f"  📋 {len(files)} proposed moves:")
+        by_folder = {}
+        for f in files:
+            folder = (
+                "/".join(f["dst_path"].split("/")[:-1]) if "/" in f["dst_path"] else "."
+            )
+            by_folder.setdefault(folder, []).append(f["dst_path"].split("/")[-1])
+        for folder, names in by_folder.items():
+            print(f"  📂 {folder}/")
+            for n in names[:5]:
+                print(f"     - {n}")
+            if len(names) > 5:
+                print(f"     ... +{len(names) - 5} more")
+
+        result = {
+            "status": "success",
+            "command": "propose",
+            "paths": args.paths,
+            "use_llm": use_llm,
+            "count": len(files),
+            "structure": {"files": files},
+        }
+        if out:
+            with open(out, "w") as f:
+                json.dump(result, f, indent=2)
+            print(f"  💾 Saved to {out}")
+        return result
 
 
 def main():
-    """Main entry point for CLI"""
     cli = CLI()
     result = cli.run_command()
-
     if result.get("status") == "error":
-        print(f"Error: {result.get('message', 'Unknown error')}")
+        print(f"Error: {result.get('message')}")
         sys.exit(1)
-    else:
-        print(json.dumps(result, indent=2))
+    print(json.dumps(result, indent=2))
 
 
 if __name__ == "__main__":

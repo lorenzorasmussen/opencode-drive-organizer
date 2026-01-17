@@ -19,7 +19,6 @@ def test_cli_initialization():
 def test_scan_command():
     """Verify scan command"""
     cli = CLI()
-    # Test with mock scan
     result = cli.run_command(["scan", "."])
     assert result is not None
 
@@ -46,24 +45,30 @@ def test_analyze_command():
 
 
 def test_help_command():
-    """Verify help command"""
+    """Verify help command returns error dict"""
     cli = CLI()
     result = cli.run_command(["--help"])
     assert result is not None
+    assert result.get("status") == "error"
+    assert result.get("exit_code") == 0
 
 
 def test_version_command():
-    """Verify version command"""
+    """Verify version command returns error dict"""
     cli = CLI()
     result = cli.run_command(["--version"])
     assert result is not None
+    assert result.get("status") == "error"
+    assert result.get("exit_code") == 0
 
 
 def test_command_validation():
-    """Verify command validation"""
+    """Verify command validation returns error dict"""
     cli = CLI()
     result = cli.run_command(["invalid-command"])
-    assert "error" in result or "usage" in result.lower()
+    assert result is not None
+    assert result.get("status") == "error"
+    assert result.get("exit_code") == 2
 
 
 def test_verbose_output():

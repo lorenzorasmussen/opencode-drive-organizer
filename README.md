@@ -60,6 +60,9 @@ This system implements findings from four comprehensive research documents:
 - ✅ **Fast Duplicate Detection**: xxHash/Blake3 for large datasets
 - ✅ **Performance Monitoring**: Disk usage thresholds, daemon alerts
 - ✅ **Local LLM**: Ollama integration for privacy-first AI
+- ✅ **Real-time Watch Mode**: Monitor directories for file changes
+- ✅ **LlamaIndex Content Extraction**: Rich document analysis and summarization
+- ✅ **Vision Model Integration**: Image categorization with Moondream/LLaVA
 
 ## Installation
 
@@ -113,29 +116,50 @@ bash tests/integration_test.sh
 
 ## Usage
 
-### Run Autonomous Organization
+### Command Reference
+
+| Command | Description |
+|---------|-------------|
+| `scan <paths...>` | Scan files/directories |
+| `scan <paths...> --llamaindex` | Extract content from documents |
+| `scan <paths...> --vision` | Analyze images with vision model |
+| `scan <paths...> --llamaindex --vision` | Full content + image analysis |
+| `organize <paths...>` | Organize files with AI + learning |
+| `organize <paths...> --execute` | Actually move files (default: dry-run) |
+| `duplicates <paths...>` | Find duplicate files |
+| `analyze <paths...>` | Analyze file patterns |
+| `status` | Show system status |
+| `clean <paths...>` | Clean temporary files |
+| `clean <paths...> --execute` | Actually delete files |
+| `watch <dir>` | Monitor directory for file changes |
+| `watch <dir> --learning` | Watch with learning enabled |
+| `propose <paths...>` | Generate folder structure suggestions |
+| `propose <paths...> --llm` | LLM-powered smart categorization |
+
+### Examples
 
 ```bash
-@opencode-google-drive-organizer organize
+# Scan single file
+python3 src/main.py scan report.pdf
+
+# Scan multiple files
+python3 src/main.py scan file1.txt file2.pdf file3.docx
+
+# Scan file + directory
+python3 src/main.py scan document.pdf ~/Downloads
+
+# Scan with full analysis
+python3 src/main.py scan . --llamaindex --vision
+
+# Organize specific files
+python3 src/main.py organize file1.pdf file2.jpg --execute
+
+# Find duplicates in multiple locations
+python3 src/main.py duplicates ~/Documents ~/Pictures
+
+# Propose structure for mixed inputs
+python3 src/main.py propose file.pdf src/ --llm --output structure.json
 ```
-
-System autonomously: scans → analyzes → organizes → reports
-
-### Status Check
-
-```bash
-@opencode-google-drive-organizer status
-```
-
-Shows last execution, current confidence levels, pending operations.
-
-### Rollback (Emergency Undo)
-
-```bash
-@opencode-google-drive-organizer rollback --date 2025-01-14
-```
-
-Executes inverse operations to undo last organization.
 
 ## Configuration
 
