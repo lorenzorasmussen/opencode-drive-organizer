@@ -1,0 +1,16 @@
+# Never commit credentials or secrets
+config/credentials.json
+config/credentials_*.json
+config/*.token
+data/cache/
+logs/
+output/
+*.pyc
+__pycache__/
+.env
+.secrets
+
+# Personal and sensitive data
+**/*personal*
+**/*credentials*
+**/*secrets*

@@ -1,0 +1,29 @@
+# Google Drive API
+google-api-python-client>=2.100.0
+google-auth-oauthlib>=1.0.0
+
+# Data handling
+pandas>=2.0.0
+pyyaml>=6.0
+python-dateutil>=2.8.0
+
+# File operations
+python-magic>=0.4.27
+
+# Fast duplicate detection
+xxhash>=3.0.0
+
+# Performance monitoring
+psutil>=5.9.0
+
+# Ollama integration
+ollama>=0.1.0
+
+# SQLite (included in stdlib, but add wrapper)
+# No external dependency needed
+
+# rclone interaction (CLI tool, not Python lib)
+# rclone must be installed separately: brew install rclone
+
+# OpenCode integration
+# No external deps - uses agent calling conventions
