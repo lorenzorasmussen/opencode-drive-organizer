@@ -479,7 +479,15 @@ class FileOperationLearner:
             dst: Destination path (None for delete)
             operation: Operation type (move, copy, delete)
         """
-        # Extract pattern from operation
+        # Check for GDrive path
+        is_gdrive_src = src.startswith("gdrive:")
+        is_gdrive_dst = dst and dst.startswith("gdrive:")
+
+        if is_gdrive_src or is_gdrive_dst:
+            self._record_gdrive_pattern(src, dst, operation)
+            return
+
+        # Local path handling (existing logic)
         src_path = Path(src)
         dst_path = Path(dst) if dst else None
 
@@ -493,7 +501,6 @@ class FileOperationLearner:
             "count": 1,
         }
 
-        # Check for existing similar pattern
         for existing in self.patterns:
             if (
                 existing["src_pattern"] == pattern["src_pattern"]
@@ -504,7 +511,41 @@ class FileOperationLearner:
                 self._save_patterns()
                 return
 
-        # Add new pattern
+        self.patterns.append(pattern)
+        self._save_patterns()
+
+    def _record_gdrive_pattern(
+        self, src: str, dst: Optional[str], operation: str
+    ) -> None:
+        """Record a GDrive file operation"""
+        is_gdrive = src.startswith("gdrive:")
+        src_id = src.replace("gdrive:", "") if is_gdrive else None
+        src_name = Path(src).name if not is_gdrive else "unknown"
+
+        pattern = {
+            "src_pattern": "gdrive:",
+            "src_filename": src_name,
+            "dst_pattern": Path(dst).name
+            if dst and not dst.startswith("gdrive:")
+            else dst,
+            "dst_folder_id": dst.replace("gdrive:", "")
+            if dst and dst.startswith("gdrive:")
+            else None,
+            "operation": operation,
+            "timestamp": datetime.now().isoformat(),
+            "count": 1,
+            "is_gdrive": True,
+        }
+
+        for existing in self.patterns:
+            if existing.get("is_gdrive") and existing.get("dst_pattern") == pattern.get(
+                "dst_pattern"
+            ):
+                existing["count"] += 1
+                existing["timestamp"] = pattern["timestamp"]
+                self._save_patterns()
+                return
+
         self.patterns.append(pattern)
         self._save_patterns()
 
@@ -522,35 +563,55 @@ class FileOperationLearner:
         Returns:
             Suggested destination path or None
         """
+        # Check for GDrive path
+        if file_path.startswith("gdrive:"):
+            return self._suggest_gdrive_destination(file_path)
+
+        # Local path handling (existing logic)
         file_p = Path(file_path)
         filename = file_p.name
         src_dir = str(file_p.parent)
 
-        # Find matching patterns
         matches = []
         for p in self.patterns:
+            if p.get("is_gdrive"):
+                continue
             if p["operation"] == "move" and p["dst_pattern"]:
-                # Check if source matches
                 if src_dir == p["src_pattern"] or src_dir.startswith(p["src_pattern"]):
-                    # Check if filename pattern matches
                     if self._match_pattern(filename, p["src_filename"]):
                         matches.append(p)
 
         if not matches:
             return None
 
-        # Sort by frequency
         matches.sort(key=lambda x: x["count"], reverse=True)
-
         best = matches[0]
 
-        # Generate destination path
         if "*" in best["dst_pattern"]:
             dst = best["dst_pattern"].replace("*", file_p.stem)
         else:
             dst = os.path.join(best["dst_pattern"], filename)
 
         return dst
+
+    def _suggest_gdrive_destination(self, file_path: str) -> Optional[str]:
+        """Suggest destination for GDrive file"""
+        filename = Path(file_path).name
+
+        # Find GDrive patterns
+        matches = []
+        for p in self.patterns:
+            if p.get("is_gdrive") and p.get("dst_folder_id"):
+                matches.append(p)
+
+        if not matches:
+            return None
+
+        matches.sort(key=lambda x: x["count"], reverse=True)
+        best = matches[0]
+
+        # Return the learned destination folder
+        return best.get("dst_pattern", "")
 
     def _match_pattern(self, filename: str, pattern: str) -> bool:
         """Check if filename matches pattern"""

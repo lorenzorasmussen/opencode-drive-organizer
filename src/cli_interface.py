@@ -436,10 +436,29 @@ class CLI:
 
         # Auto-execute if requested
         if use_auto and not dry:
-            executor = ConfidenceExecutor()
+            from gdrive_executor import GDriveExecutor
+
+            executor = GDriveExecutor(local_executor=ConfidenceExecutor())
+            executed_count = 0
             for item in actions["auto"]:
-                result = executor.execute_action(item)
-                print(f"  ✓ Executed: {item['path']} -> {item['action']}")
+                # Prepare action dict
+                action = {
+                    "file": item["path"],
+                    "type": "MOVE"
+                    if item.get("action") and item["action"] != "skip"
+                    else "MOVE",
+                    "target": item.get("action", ""),
+                    "confidence": item["confidence"],
+                }
+                result = executor.execute_action(action)
+                if result.get("executed"):
+                    executed_count += 1
+                    print(f"  ✓ Executed: {item['path']} -> {item['action']}")
+                else:
+                    print(
+                        f"  ⚠️  Failed: {item['path']}: {result.get('error', 'Unknown')}"
+                    )
+            print(f"  ✓ Total executed: {executed_count}")
 
         print(
             f"  📊 Auto: {len(actions['auto'])} | Review: {len(actions['review'])} | Skip: {len(actions['skip'])}"
