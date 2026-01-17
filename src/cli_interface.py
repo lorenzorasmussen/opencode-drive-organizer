@@ -65,7 +65,12 @@ class CLI:
         organize_parser = subparsers.add_parser("organize", help="Organize files")
         organize_parser.add_argument("directory", help="Directory to organize")
         organize_parser.add_argument(
-            "--dry-run", action="store_true", help="Show changes without executing"
+            "--dry-run",
+            action="store_true",
+            help="Show changes without executing (default)",
+        )
+        organize_parser.add_argument(
+            "--execute", action="store_true", help="Actually execute the changes"
         )
 
         # Duplicates command
@@ -82,6 +87,18 @@ class CLI:
 
         # Status command
         status_parser = subparsers.add_parser("status", help="Show system status")
+
+        # Clean command
+        clean_parser = subparsers.add_parser("clean", help="Clean temporary files")
+        clean_parser.add_argument("directory", help="Directory to clean")
+        clean_parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Show what would be deleted (default)",
+        )
+        clean_parser.add_argument(
+            "--execute", action="store_true", help="Actually delete temporary files"
+        )
 
     def run_command(self, args: Optional[list] = None) -> Dict:
         """
@@ -113,6 +130,8 @@ class CLI:
             return self._handle_analyze(parsed)
         elif parsed.command == "status":
             return self._handle_status(parsed)
+        elif parsed.command == "clean":
+            return self._handle_clean(parsed)
         else:
             return {"status": "error", "message": f"Unknown command: {parsed.command}"}
 
@@ -137,9 +156,13 @@ class CLI:
         from semantic_analyzer import SemanticAnalyzer
 
         dry_run = getattr(args, "dry_run", False)
+        execute = getattr(args, "execute", False)
+
+        # Default to dry-run unless --execute is specified
+        is_dry_run = dry_run or not execute
 
         print(f"📁 Organizing: {args.directory}")
-        print(f"   Mode: {'DRY RUN' if dry_run else 'LIVE'}")
+        print(f"   Mode: {'DRY RUN' if is_dry_run else 'LIVE'}")
 
         # Step 1: Scan files
         print("  📄 Scanning files...")
@@ -196,7 +219,7 @@ class CLI:
             "status": "success",
             "command": "organize",
             "directory": args.directory,
-            "dry_run": dry_run,
+            "dry_run": is_dry_run,
             "summary": {
                 "total_files": len(files),
                 "auto_execute_count": len(actions["auto_execute"]),
@@ -210,11 +233,11 @@ class CLI:
             "statistics": analyzer.generate_statistics(),
         }
 
-        if dry_run:
+        if is_dry_run:
             print("\n  🏃 DRY RUN - No changes made")
         else:
-            print("\n  ⚠️  LIVE MODE - Actions would be executed here")
-            print("     (Implementation pending: connect to file mover)")
+            print("\n  ⚠️  LIVE MODE - File operations would be executed here")
+            print("     (Use organize with --execute to perform actual changes)")
 
         # Print summary
         print(f"\n  📊 Summary:")
@@ -285,8 +308,85 @@ class CLI:
                 "organize - Organize files with AI analysis",
                 "duplicates - Find duplicate files",
                 "analyze - Analyze file patterns",
-                "status - Show this status",
+                "status - Show system status",
+                "clean - Clean temporary files",
             ],
+        }
+
+    def _handle_clean(self, args) -> Dict:
+        """Handle clean command - remove temporary files"""
+        import re
+
+        dry_run = getattr(args, "dry_run", False)
+        execute = getattr(args, "execute", False)
+
+        mode = "DRY RUN" if dry_run or not execute else "LIVE"
+        print(f"🧹 Cleaning: {args.directory}")
+        print(f"   Mode: {mode}")
+
+        # Temporary file patterns
+        temp_patterns = [
+            r"^\..*\.swp$",  # Vim swap files
+            r"^.*\.tmp$",  # .tmp
+            r"^.*\.temp$",  # .temp
+            r"^.*\.bak$",  # .bak
+            r"^.*\.old$",  # .old
+            r"^.*~$",  # Backup files
+            r"^#.*#$",  # Emacs auto-save
+            r"\.DS_Store$",  # macOS metadata
+            r"^__pycache__$",  # Python cache
+            r"^node_modules$",  # Node modules
+            r"\.pyc$",  # Python compiled
+            r"\.pyo$",  # Python optimized
+        ]
+
+        temp_extensions = {".tmp", ".temp", ".bak", ".old", ".swp", "~", ".pyc", ".pyo"}
+
+        deleted = []
+        skipped = []
+
+        for root, dirs, files in os.walk(args.directory):
+            # Skip hidden dirs
+            dirs[:] = [d for d in dirs if not d.startswith(".")]
+
+            for filename in files:
+                file_path = os.path.join(root, filename)
+                ext = os.path.splitext(filename)[1].lower()
+
+                is_temp = (
+                    filename.startswith(".")  # Hidden files
+                    or ext in temp_extensions  # Temp extensions
+                    or any(re.match(p, filename) for p in temp_patterns)  # Patterns
+                )
+
+                if is_temp:
+                    deleted.append(file_path)
+                    if execute:
+                        try:
+                            os.remove(file_path)
+                        except Exception as e:
+                            print(f"  ⚠️  Failed to delete {filename}: {e}")
+                else:
+                    skipped.append(file_path)
+
+        print(f"  ✓ Found {len(deleted)} temporary files")
+
+        if dry_run or not execute:
+            print("\n  🏃 DRY RUN - Files would be deleted:")
+            for f in deleted[:20]:
+                print(f"     - {os.path.basename(f)}")
+            if len(deleted) > 20:
+                print(f"     ... and {len(deleted) - 20} more")
+        else:
+            print(f"\n  ✓ Deleted {len(deleted)} temporary files")
+
+        return {
+            "status": "success",
+            "command": "clean",
+            "directory": args.directory,
+            "dry_run": dry_run or not execute,
+            "deleted_count": len(deleted),
+            "deleted_files": deleted[:20],
         }
 
 
